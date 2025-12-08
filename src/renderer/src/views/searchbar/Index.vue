@@ -1,0 +1,148 @@
+<template>
+  <div class="backdrop-blur-sm flex flex-col h-full">
+    <div
+      class="h-[60px] flex items-center px-4 py-4 border-b border-gray-700/50 relative bg-[#1c1c1c]"
+    >
+      <div class="flex justify-center text-blue-400">
+        <div
+          v-if="enterApp"
+          class="flex items-center gap-2 text-xl font-mono border border-gray-700 rounded px-2 py-1 text-blue-400"
+        >
+          <Calculator :size="24"></Calculator>
+          <span>JSON</span>
+          <X :size="20" color="#6a7282" />
+        </div>
+        <span v-else>logo</span>
+      </div>
+      <input
+        ref="inputRef"
+        v-model="query"
+        type="text"
+        class="flex-1 bg-transparent border-none outline-none text-2xl px-4 text-blue-400 placeholder-gray-500 font-light focus:ring-0"
+        :placeholder="enterApp ? 'Press Backspace to exit' : 'Type to search...'"
+        autofocus
+        @input="handleInput"
+        @keydown="handleKeydown"
+      />
+      <div
+        class="flex items-center gap-2 text-xs text-gray-500 font-mono border border-gray-700 rounded px-2 py-1"
+      >
+        <span>ESC</span>
+      </div>
+    </div>
+    <div class="flex-1 bg-[#1c1c1c] overflow-auto">
+      <div
+        v-for="(item, index) in filterList"
+        :key="index"
+        class="h-[60px] flex items-center px-4 py-3 cursor-pointer transition-colors duration-75"
+        :class="`${index === selectedIndex ? 'bg-[#303342] border-l-4 border-blue-500' : 'border-l-4 border-transparent/30 hover:bg-[#252525]'}`"
+        @click="handleClick(item)"
+      >
+        <div class="flex-1 min-w-0">
+          <div class="flex items-baseline justify-between mb-0.5">
+            <h3
+              class="text-lg font-medium truncate"
+              :class="index === selectedIndex ? 'text-white' : 'text-gray-300'"
+            >
+              {{ item.pluginName }}
+            </h3>
+          </div>
+          <p class="text-sm text-gray-500 truncate">
+            {{ item.version }}
+          </p>
+        </div>
+      </div>
+    </div>
+    <div
+      class="bg-[#181818] h-6 px-4 flex items-center justify-between text-gray-500 text-xs"
+      style="-webkit-app-region: drag"
+    >
+      <span>标题</span>
+      <Settings :size="16"></Settings>
+    </div>
+  </div>
+</template>
+<script lang="ts" setup>
+import { ref, onMounted, computed, watch } from 'vue'
+import { Calculator, Settings, X } from 'lucide-vue-next'
+import { trpcClient } from '@renderer/trpc/trpc-client'
+
+const query = ref('')
+const rawQuery = ref('')
+const list = ref<
+  {
+    id: string
+    version: string
+    pluginName: string
+    description: string
+    view: string
+    backend: string
+    root: string
+  }[]
+>([])
+const selectedIndex = ref(0)
+const enterApp = ref(false)
+const filterList = computed(() => {
+  return list.value.filter((item) => item.pluginName.includes(rawQuery.value))
+})
+
+function initHeight() {
+  trpcClient.window.setMainWindowHeight.mutate({ height: 60 + 24 + filterList.value.length * 60 })
+}
+
+watch(filterList, () => {
+  initHeight()
+  selectedIndex.value = 0
+  trpcClient.plugin.closePlugin.mutate()
+})
+
+watch(query, () => {
+  selectedIndex.value = 0
+  if (!enterApp.value) {
+    rawQuery.value = query.value
+  }
+})
+
+onMounted(async () => {
+  list.value = await trpcClient.plugin.getPluginList.query()
+  list.value = [...list.value]
+})
+
+function handleClick(item) {
+  console.log('item:', item.InstallLocation + item.appName)
+  trpcClient.plugin.openPlugin.mutate({ id: item.id })
+  enterApp.value = true
+}
+
+function handleInput(e) {
+  if (!enterApp.value) {
+    query.value = e.target.value
+  }
+}
+
+async function handleKeydown(e) {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    if (selectedIndex.value < filterList.value.length - 1) {
+      selectedIndex.value++
+    }
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    if (selectedIndex.value > 0) {
+      selectedIndex.value--
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault()
+    if (filterList.value[selectedIndex.value]) {
+      handleClick(filterList.value[selectedIndex.value])
+    }
+  } else if (e.key === 'Backspace') {
+    if (enterApp.value && query.value.length === 0) {
+      trpcClient.plugin.closePlugin.mutate()
+      enterApp.value = false
+      initHeight()
+    }
+  }
+}
+</script>
+<style lang="scss" scoped></style>

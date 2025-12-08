@@ -1,0 +1,25 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
+  "include": [
+    "src/renderer/src/env.d.ts",
+    "src/renderer/src/**/*",
+    "src/renderer/src/**/*.vue",
+    "src/preload/*.d.ts",
+  ],
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "composite": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "baseUrl": ".",
+    "types": [
+      "electron-vite/node"
+    ],
+    "paths": {
+      "@renderer/*": [
+        "src/renderer/src/*"
+      ],
+      "@main/modules/app.router": ["src/main/modules/app.router"],
+    }
+  }
+}

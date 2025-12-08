@@ -1,0 +1,278 @@
+import {
+  AnyTRPCRouter,
+  callTRPCProcedure,
+  getErrorShape,
+  getTRPCErrorFromUnknown,
+  inferRouterContext,
+  isTrackedEnvelope,
+  transformTRPCResponse,
+  TRPCError
+} from '@trpc/server'
+import { isObservable, observableToAsyncIterable } from '@trpc/server/observable'
+import { TRPCResponseMessage } from '@trpc/server/rpc'
+import {
+  isAsyncIterable,
+  iteratorResource,
+  run,
+  TRPCResultMessage,
+  Unpromise
+} from '@trpc/server/unstable-core-do-not-import'
+import { CreateContextOptions, MaybePromise } from 'trpc-electron/main'
+
+export async function handleIPCMessage<TRouter extends AnyTRPCRouter>({
+  router,
+  createContext,
+  internalId,
+  message,
+  subscriptions,
+  process
+}: {
+  router: TRouter
+  createContext?: (opts: any) => Promise<inferRouterContext<TRouter>>
+  internalId: string
+  message: any
+  subscriptions: Map<string, AbortController>
+  process: NodeJS.Process
+}) {
+  if (message.method === 'subscription.stop') {
+    subscriptions.get(internalId)?.abort()
+    return
+  }
+
+  const { type, input: serializedInput, path, id } = message.operation
+  const input = serializedInput
+    ? router._def._config.transformer.input.deserialize(serializedInput)
+    : undefined
+
+  const ctx = (await createContext?.({})) ?? {}
+
+  const respond = (response: TRPCResponseMessage) => {
+    process.send?.(transformTRPCResponse(router._def._config, response))
+  }
+
+  try {
+    const abortController = new AbortController()
+    const result = await callTRPCProcedure({
+      ctx,
+      path,
+      router,
+      getRawInput: async () => input,
+      type,
+      signal: abortController.signal
+    })
+
+    const isIterableResult = isAsyncIterable(result) || isObservable(result)
+
+    if (type !== 'subscription') {
+      if (isIterableResult) {
+        throw new TRPCError({
+          code: 'UNSUPPORTED_MEDIA_TYPE',
+          message: `Cannot return an async iterable or observable from a ${type} procedure.`
+        })
+      }
+
+      respond({
+        id,
+        result: {
+          type: 'data',
+          data: result
+        }
+      })
+      return
+    }
+
+    if (!isIterableResult) {
+      throw new TRPCError({
+        message: `Subscription ${path} did not return an observable or a AsyncGenerator`,
+        code: 'INTERNAL_SERVER_ERROR'
+      })
+    }
+
+    if (subscriptions.has(internalId)) {
+      // duplicate request ids for client
+
+      throw new TRPCError({
+        message: `Duplicate id ${internalId}`,
+        code: 'BAD_REQUEST'
+      })
+    }
+
+    const iterable = isObservable(result)
+      ? observableToAsyncIterable(result, abortController.signal)
+      : result
+
+    run(async () => {
+      await using iterator = iteratorResource(iterable)
+
+      const abortPromise = new Promise<'abort'>((resolve) => {
+        abortController.signal.onabort = () => resolve('abort')
+      })
+      // We need those declarations outside the loop for garbage collection reasons. If they
+      // were declared inside, they would not be freed until the next value is present.
+      let next:
+        | null
+        | TRPCError
+        | Awaited<typeof abortPromise | ReturnType<(typeof iterator)['next']>>
+      let result: null | TRPCResultMessage<unknown>['result']
+
+      while (true) {
+        next = await Unpromise.race([iterator.next().catch(getTRPCErrorFromUnknown), abortPromise])
+
+        if (next === 'abort') {
+          await iterator.return?.()
+          break
+        }
+        if (next instanceof Error) {
+          const error = getTRPCErrorFromUnknown(next)
+          respond({
+            id,
+            error: getErrorShape({
+              config: router._def._config,
+              error,
+              type,
+              path,
+              input,
+              ctx
+            })
+          })
+          break
+        }
+        if (next.done) {
+          break
+        }
+
+        result = {
+          type: 'data',
+          data: next.value
+        }
+
+        if (isTrackedEnvelope(next.value)) {
+          const [id, data] = next.value
+          result.id = id
+          result.data = {
+            id,
+            data
+          }
+        }
+
+        respond({
+          id,
+          result
+        })
+
+        // free up references for garbage collection
+        next = null
+        result = null
+      }
+
+      respond({
+        id,
+        result: {
+          type: 'stopped'
+        }
+      })
+      subscriptions.delete(internalId)
+    }).catch((cause) => {
+      const error = getTRPCErrorFromUnknown(cause)
+      respond({
+        id,
+        error: getErrorShape({
+          config: router._def._config,
+          error,
+          type,
+          path,
+          input,
+          ctx
+        })
+      })
+      abortController.abort()
+    })
+
+    respond({
+      id,
+      result: {
+        type: 'started'
+      }
+    })
+    subscriptions.set(internalId, abortController)
+  } catch (cause) {
+    const error: TRPCError = getTRPCErrorFromUnknown(cause)
+
+    return respond({
+      id,
+      error: getErrorShape({
+        config: router._def._config,
+        error,
+        type,
+        path,
+        input,
+        ctx
+      })
+    })
+  }
+}
+
+class IPCHandler<TRouter extends AnyTRPCRouter> {
+  #process: NodeJS.Process
+  #subscriptions: Map<string, AbortController> = new Map()
+
+  constructor({
+    process,
+    createContext,
+    router
+  }: {
+    process: NodeJS.Process
+    createContext?: (opts: CreateContextOptions) => MaybePromise<inferRouterContext<TRouter>>
+    router: TRouter
+  }) {
+    this.#process = process
+    this.#process.on('message', (request: any) => {
+      handleIPCMessage({
+        router,
+        createContext,
+        internalId: request.id,
+        message: request,
+        subscriptions: this.#subscriptions,
+        process
+      })
+    })
+    // ipcMain.on(ELECTRON_TRPC_CHANNEL, (event: IpcMainEvent, request: ETRPCRequest) => {
+    //   console.log('request:', request)
+    //   console.log('event:', event)
+    //   //   handleIPCMessage({
+    //   //     router,
+    //   //     createContext,
+    //   //     internalId: getInternalId(event, request),
+    //   //     event,
+    //   //     message: request,
+    //   //     subscriptions: this.#subscriptions
+    //   //   })
+    // })
+  }
+
+  //   #cleanUpSubscriptions({
+  //     webContentsId,
+  //     frameRoutingId
+  //   }: {
+  //     webContentsId: number
+  //     frameRoutingId?: number
+  //   }) {
+  //     for (const [key, sub] of this.#subscriptions.entries()) {
+  //       if (key.startsWith(`${webContentsId}-${frameRoutingId ?? ''}`)) {
+  //         sub.abort()
+  //         this.#subscriptions.delete(key)
+  //       }
+  //     }
+  //   }
+}
+
+export function createIpcTrpcServer<TRouter extends AnyTRPCRouter>({
+  createContext,
+  router
+}: {
+  process: NodeJS.Process
+  createContext?: (opts: CreateContextOptions) => Promise<inferRouterContext<TRouter>>
+  router: TRouter
+}) {
+  return new IPCHandler({ process, createContext, router })
+}
