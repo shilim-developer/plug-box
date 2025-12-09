@@ -3,7 +3,7 @@
 'use strict'
 const electron = require('electron')
 class PreloadIpc {
-  pluginName = 'json-plugin'
+  pluginName = `${pluginName}`
   /**
    * 双向通信（invoke）：渲染进程 -> 主进程（异步，有返回值）
    * @param {string} channel - 通道名

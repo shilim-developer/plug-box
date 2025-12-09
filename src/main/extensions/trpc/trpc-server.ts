@@ -236,34 +236,7 @@ class IPCHandler<TRouter extends AnyTRPCRouter> {
         process
       })
     })
-    // ipcMain.on(ELECTRON_TRPC_CHANNEL, (event: IpcMainEvent, request: ETRPCRequest) => {
-    //   console.log('request:', request)
-    //   console.log('event:', event)
-    //   //   handleIPCMessage({
-    //   //     router,
-    //   //     createContext,
-    //   //     internalId: getInternalId(event, request),
-    //   //     event,
-    //   //     message: request,
-    //   //     subscriptions: this.#subscriptions
-    //   //   })
-    // })
   }
-
-  //   #cleanUpSubscriptions({
-  //     webContentsId,
-  //     frameRoutingId
-  //   }: {
-  //     webContentsId: number
-  //     frameRoutingId?: number
-  //   }) {
-  //     for (const [key, sub] of this.#subscriptions.entries()) {
-  //       if (key.startsWith(`${webContentsId}-${frameRoutingId ?? ''}`)) {
-  //         sub.abort()
-  //         this.#subscriptions.delete(key)
-  //       }
-  //     }
-  //   }
 }
 
 export function createIpcTrpcServer<TRouter extends AnyTRPCRouter>({

@@ -9,16 +9,16 @@
           class="flex items-center gap-2 text-xl font-mono border border-gray-700 rounded px-2 py-1 text-blue-400"
         >
           <Calculator :size="24"></Calculator>
-          <span>JSON</span>
-          <X :size="20" color="#6a7282" />
+          <span>{{ currentPlugin.pluginName }}</span>
+          <X :size="20" color="#6a7282" class="cursor-pointer" @click="closePlugin" />
         </div>
-        <span v-else>logo</span>
+        <!-- <span v-else>logo</span> -->
       </div>
       <input
         ref="inputRef"
         v-model="query"
         type="text"
-        class="flex-1 bg-transparent border-none outline-none text-2xl px-4 text-blue-400 placeholder-gray-500 font-light focus:ring-0"
+        class="flex-1 bg-transparent border-none outline-none text-2xl px-2 text-blue-400 placeholder-gray-500 font-light focus:ring-0"
         :placeholder="enterApp ? 'Press Backspace to exit' : 'Type to search...'"
         autofocus
         @input="handleInput"
@@ -26,8 +26,15 @@
       />
       <div
         class="flex items-center gap-2 text-xs text-gray-500 font-mono border border-gray-700 rounded px-2 py-1"
+        style="-webkit-app-region: drag"
       >
-        <span>ESC</span>
+        <span>Logo</span>
+        <img
+          class="w-4 h-4"
+          src="https://github.com/shilim-developer/json-plugin/raw/master/apps/web/public/logo.png"
+          alt=""
+          srcset=""
+        />
       </div>
     </div>
     <div class="flex-1 bg-[#1c1c1c] overflow-auto">
@@ -66,6 +73,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { Calculator, Settings, X } from 'lucide-vue-next'
 import { trpcClient } from '@renderer/trpc/trpc-client'
+import { Plugin } from '@common/types/plugin'
 
 const query = ref('')
 const rawQuery = ref('')
@@ -82,8 +90,9 @@ const list = ref<
 >([])
 const selectedIndex = ref(0)
 const enterApp = ref(false)
+const currentPlugin = ref<Plugin>(null)
 const filterList = computed(() => {
-  return list.value.filter((item) => item.pluginName.includes(rawQuery.value))
+  return rawQuery.value ? list.value.filter((item) => item.pluginName.includes(rawQuery.value)) : []
 })
 
 function initHeight() {
@@ -104,7 +113,7 @@ watch(query, () => {
 })
 
 onMounted(async () => {
-  list.value = await trpcClient.plugin.getPluginList.query()
+  list.value = await trpcClient.plugin.getInstalledPluginList.query()
   list.value = [...list.value]
 })
 
@@ -112,6 +121,7 @@ function handleClick(item) {
   console.log('item:', item.InstallLocation + item.appName)
   trpcClient.plugin.openPlugin.mutate({ id: item.id })
   enterApp.value = true
+  currentPlugin.value = item
 }
 
 function handleInput(e) {
@@ -137,12 +147,18 @@ async function handleKeydown(e) {
       handleClick(filterList.value[selectedIndex.value])
     }
   } else if (e.key === 'Backspace') {
-    if (enterApp.value && query.value.length === 0) {
-      trpcClient.plugin.closePlugin.mutate()
-      enterApp.value = false
-      initHeight()
-    }
+    // if (enterApp.value && query.value.length === 0) {
+    //   trpcClient.plugin.closePlugin.mutate()
+    //   enterApp.value = false
+    //   initHeight()
+    // }
   }
+}
+
+function closePlugin() {
+  trpcClient.plugin.closePlugin.mutate()
+  enterApp.value = false
+  initHeight()
 }
 </script>
 <style lang="scss" scoped></style>

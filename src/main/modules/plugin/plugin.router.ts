@@ -16,9 +16,20 @@ export default class PluginRouter {
     const { publicProcedure } = this.trpcService
     return {
       plugin: {
-        getPluginList: publicProcedure.query(() => {
-          return this.pluginService.getPluginList()
+        getMarketplacePluginList: publicProcedure.query(() => {
+          return this.pluginService.getMarketplacePluginList()
         }),
+        getInstalledPluginList: publicProcedure.query(() => {
+          return this.pluginService.getInstalledPluginList()
+        }),
+        installPlugin: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
+          return this.pluginService.installPlugin(input.id)
+        }),
+        uninstallPlugin: publicProcedure
+          .input(z.object({ id: z.string() }))
+          .mutation(({ input }) => {
+            return this.pluginService.uninstallPlugin(input.id)
+          }),
         openPlugin: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
           this.pluginService.openPlugin(input.id)
         }),

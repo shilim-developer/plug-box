@@ -2,10 +2,12 @@
   "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
   "include": [
     "electron.vite.config.*",
+    "src/common/**/*",
     "src/main/**/*",
     "src/preload/**/*"
   ],
   "compilerOptions": {
+    "baseUrl": ".",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "ignoreDeprecations": "6.0",
@@ -14,6 +16,11 @@
     "emitDecoratorMetadata": true,
     "types": [
       "electron-vite/node"
-    ]
-  }
+    ],
+    "paths": {
+        "@common/*": [
+          "src/common/*"
+        ],
+    }
+  },
 }

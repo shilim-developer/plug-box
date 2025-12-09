@@ -5,6 +5,11 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
+    resolve: {
+      alias: {
+        '@common': resolve('src/common')
+      }
+    },
     plugins: [externalizeDepsPlugin(), swcPlugin()],
     build: {
       rollupOptions: {
@@ -34,7 +39,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/preload/index.js'),
-          extension: resolve(__dirname, 'src/preload/extension.js'),
+          // extension: resolve(__dirname, 'src/preload/extension.js'),
           plugin: resolve(__dirname, 'src/preload/plugin.js')
         }
       }
@@ -43,6 +48,7 @@ export default defineConfig({
   renderer: {
     resolve: {
       alias: {
+        '@common': resolve('src/common'),
         '@renderer': resolve('src/renderer/src'),
         '@main': resolve('src/main')
       }

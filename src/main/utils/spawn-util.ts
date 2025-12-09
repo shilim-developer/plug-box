@@ -1,8 +1,15 @@
-import { spawn } from 'child_process'
+import { spawn } from 'cross-spawn'
 
 export class SpawnUtil {
-  static async exec(command: string, args = [], options = { timeout: 0 }) {
-    const { timeout, ...spawnOptions } = options
+  static async exec(
+    command: string,
+    args: string[] = [],
+    options: {
+      timeout?: number
+      cwd?: string
+    }
+  ) {
+    const { timeout = 0, ...spawnOptions } = options
     return new Promise((resolve, reject) => {
       const child = spawn(command, args, spawnOptions)
       let timeoutTimer: NodeJS.Timeout

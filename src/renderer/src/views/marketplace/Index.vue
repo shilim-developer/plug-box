@@ -40,7 +40,7 @@
               <div
                 class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center"
               >
-                <Package :size="20" class="text-white"></Package>
+                <img :src="plugin.logo" class="w-10,h-10" />
               </div>
               <div>
                 <h3 class="text-lg font-semibold text-white">{{ plugin.pluginName }}</h3>
@@ -80,13 +80,20 @@
               >
                 安装
               </button>
-              <button
-                v-else
-                class="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
-                @click="openPlugin(plugin)"
-              >
-                打开
-              </button>
+              <template v-else>
+                <button
+                  class="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                  @click="openPlugin(plugin)"
+                >
+                  打开
+                </button>
+                <button
+                  class="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                  @click="uninstallPlugin(plugin)"
+                >
+                  卸载
+                </button>
+              </template>
               <button
                 class="px-3 py-1 text-sm bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors"
                 @click="showPluginDetails(plugin)"
@@ -154,14 +161,15 @@ onMounted(async () => {
 async function loadPlugins() {
   try {
     isLoading.value = true
-    const pluginList = await trpcClient.plugin.getPluginList.query()
+    const pluginList = await trpcClient.plugin.getMarketplacePluginList.query()
+    const installedIds = await (
+      await trpcClient.plugin.getInstalledPluginList.query()
+    ).map((item) => item.id)
+    console.log(installedIds)
 
-    // 为插件添加模拟数据
     plugins.value = pluginList.map((plugin) => ({
       ...plugin,
-      category: getRandomCategory(),
-      installed: Math.random() > 0.5,
-      description: generateDescription(plugin.pluginName)
+      installed: installedIds.includes(plugin.id)
     }))
   } catch (error) {
     console.error('加载插件列表失败:', error)
@@ -182,9 +190,24 @@ function refreshPlugins() {
   loadPlugins()
 }
 
-function installPlugin(plugin: Plugin) {
+async function installPlugin(plugin: Plugin) {
   console.log('安装插件:', plugin.pluginName)
   // TODO: 实现安装逻辑
+  await trpcClient.plugin.installPlugin.mutate({ id: plugin.id })
+  await loadPlugins()
+}
+
+function uninstallPlugin(plugin: Plugin) {
+  console.log('卸载插件:', plugin.pluginName)
+  trpcClient.plugin.uninstallPlugin
+    .mutate({ id: plugin.id })
+    .then(() => {
+      // 卸载成功后刷新插件列表
+      loadPlugins()
+    })
+    .catch((error) => {
+      console.error('卸载插件失败:', error)
+    })
 }
 
 function openPlugin(plugin: Plugin) {

@@ -1,10 +1,9 @@
-import { app, BrowserWindow, MessageChannelMain, WebContentsView } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { inject, injectable } from 'inversify'
 import { createIPCHandler } from 'trpc-electron/main'
 import WindowService from './window/window.service'
 import AppRouterFactory from './app.router'
-import { join } from 'path'
 import PluginService from './plugin/plugin.service'
 import { exec } from 'child_process'
 
