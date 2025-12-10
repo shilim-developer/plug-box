@@ -7,7 +7,8 @@ export default defineConfig({
   main: {
     resolve: {
       alias: {
-        '@common': resolve('src/common')
+        '@common': resolve('src/common'),
+        '@main': resolve('src/main')
       }
     },
     plugins: [externalizeDepsPlugin(), swcPlugin()],

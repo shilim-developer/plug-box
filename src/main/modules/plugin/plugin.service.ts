@@ -2,7 +2,7 @@ import { MainIpc } from './../../ipc/main-ipc'
 import { inject, injectable } from 'inversify'
 import TrpcService from '../trpc/trpc.service'
 import WindowService from '../window/window.service'
-import { WebContentsView, app, screen } from 'electron'
+import { WebContentsView, app, screen, session } from 'electron'
 import { join } from 'path'
 import { ChildProcess, fork } from 'child_process'
 import extensions from '../../extensions/index?modulePath'
@@ -12,64 +12,88 @@ import { AppRouter } from '../../extensions/trpc/router'
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs-extra'
 import { SpawnUtil } from '../../utils/spawn-util'
 import pluginJsTemp from '../../../../resources/plugin.js?asset'
+import { BaseResponse } from '@common/constants/base-response'
+import { autoTryCatch } from '@main/decorators/auto-try-catch'
 
 @injectable()
 export default class PluginService {
-  subWindow!: WebContentsView
-  trpcClient!: TRPCClient<AppRouter>
-  mainIpc = new MainIpc()
   extensionHost!: ChildProcess
+  extensionTrpcClient!: TRPCClient<AppRouter>
   extensionsDir = join(app.getPath('userData'), './extensions')
+  pluginMap = new Map<
+    string,
+    {
+      view: WebContentsView
+      preloadId: string
+    }
+  >()
+  subWindow!: WebContentsView
+  mainIpc = new MainIpc()
+  pluginSessionMap = new Map<string, string>()
+  currentPluginId = ''
 
   constructor(
     @inject(TrpcService) private readonly trpcService: TrpcService,
     @inject(WindowService) private readonly windowService: WindowService
   ) {}
 
-  startPluginProgress() {
-    try {
-      // 创建扩展目录
-      if (!existsSync(this.extensionsDir)) {
-        mkdirSync(this.extensionsDir)
-      }
-      this.extensionHost = fork(extensions)
-      this.trpcClient = createIpcTrpcClient(this.extensionHost)
-    } catch (error) {
-      console.log('error:', error)
+  @autoTryCatch({ errorMsg: '插件启动失败' })
+  async startPluginProgress() {
+    // 创建扩展目录
+    if (!existsSync(this.extensionsDir)) {
+      mkdirSync(this.extensionsDir)
     }
+    this.extensionHost = fork(extensions)
+    this.extensionTrpcClient = createIpcTrpcClient(this.extensionHost)
+    return BaseResponse.successMessage('启动成功')
   }
 
-  installPlugin(id: string) {
-    console.log('id:', id)
-    console.log(this.extensionsDir)
-
-    return SpawnUtil.exec('npm', ['install', id, '--registry=http://npm.shilim.cn/'], {
+  @autoTryCatch({ errorMsg: '插件安装失败' })
+  async installPlugin(id: string) {
+    await SpawnUtil.exec('npm', ['install', id, '--registry=http://npm.shilim.cn/'], {
       cwd: this.extensionsDir
-    }).catch((err) => console.error(err))
+    })
+    return BaseResponse.successMessage('安装成功')
   }
 
+  @autoTryCatch({ errorMsg: '插件卸载失败' })
   async uninstallPlugin(id: string) {
-    console.log('卸载插件:', id)
     await SpawnUtil.exec('npm', ['uninstall', id], {
       cwd: this.extensionsDir
     })
-    await this.trpcClient.unInstallPlugin.mutate({ id })
+    await this.extensionTrpcClient.unInstallPlugin.mutate({ id })
+    return BaseResponse.successMessage('卸载成功')
   }
 
+  @autoTryCatch({ errorMsg: '获取插件列表失败' })
   async getMarketplacePluginList() {
-    return await this.trpcClient.getMarketplacePluginList.query()
+    return this.extensionTrpcClient.getMarketplacePluginList.query()
   }
 
+  @autoTryCatch({ errorMsg: '获取已安装插件列表失败' })
   async getInstalledPluginList() {
-    return await this.trpcClient.getInstalledPluginList.query({
+    return this.extensionTrpcClient.getInstalledPluginList.query({
       pluginsDir: this.extensionsDir
     })
   }
 
+  @autoTryCatch({ errorMsg: '打开插件失败' })
   async openPlugin(id: string) {
-    const plugin = await this.trpcClient.getPlugin.query({ id })
+    const plugin = await this.extensionTrpcClient.getPlugin.query({ id })
     console.log('plugin:', plugin)
     if (!plugin) return
+    if (this.currentPluginId) {
+      this.closePlugin()
+    }
+    this.currentPluginId = id
+    const pluginSession = session.fromPartition(`persist:${id}`)
+    const pluginPreloadId = pluginSession.registerPreloadScript({
+      type: 'frame',
+      filePath: plugin.isSystem
+        ? join(__dirname, '../preload/index.js')
+        : join(this.extensionsDir, 'node_modules', id, 'plugin.js')
+    })
+    this.pluginSessionMap.set(id, pluginPreloadId)
     const pluginJs = join(this.extensionsDir, 'node_modules', id, 'plugin.js')
     if (!existsSync(pluginJs) && !plugin.isSystem) {
       writeFileSync(pluginJs, readFileSync(pluginJsTemp).toString().replace('${pluginName}', id))
@@ -78,11 +102,12 @@ export default class PluginService {
     this.subWindow = new WebContentsView({
       webPreferences: {
         sandbox: false,
-        preload: plugin.isSystem ? join(__dirname, '../preload/index.js') : pluginJs
+        session: pluginSession
+        // preload: plugin.isSystem ? join(__dirname, '../preload/index.js') : pluginJs
       }
     })
     this.mainIpc.register(`${id}:invoke`, async (data) => {
-      return await this.trpcClient.invokePluginMethod.mutate({
+      return await this.extensionTrpcClient.invokePluginMethod.mutate({
         id,
         methodName: data.methodName,
         params: data
@@ -113,10 +138,17 @@ export default class PluginService {
     })
   }
 
+  @autoTryCatch({ errorMsg: '关闭插件失败' })
   closePlugin() {
+    const pluginPreloadId = this.pluginSessionMap.get(this.currentPluginId)
+    if (this.currentPluginId && pluginPreloadId) {
+      this.subWindow.webContents.session.unregisterPreloadScript(pluginPreloadId)
+      this.pluginSessionMap.delete(this.currentPluginId)
+    }
     this.windowService.mainWindow.contentView.removeChildView(this.subWindow)
     const newX = (screen.getPrimaryDisplay().bounds.width - 600) / 2
     const { y, height } = this.windowService.mainWindow.getBounds()
     this.windowService.mainWindow.setBounds({ x: newX, y, width: 600, height })
+    this.currentPluginId = ''
   }
 }

@@ -10,5 +10,8 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "files.eol": "\n",
-  "cSpell.words": ["trpc"]
+  "cSpell.words": ["trpc"],
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "always"
+  }
 }

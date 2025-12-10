@@ -75,10 +75,16 @@
             <div class="flex gap-2">
               <button
                 v-if="!plugin.installed"
-                class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-1"
+                :disabled="installingPlugins.has(plugin.id)"
                 @click="installPlugin(plugin)"
               >
-                安装
+                <RefreshCw
+                  v-if="installingPlugins.has(plugin.id)"
+                  :size="14"
+                  class="animate-spin"
+                />
+                {{ installingPlugins.has(plugin.id) ? '安装中...' : '安装' }}
               </button>
               <template v-else>
                 <button
@@ -88,10 +94,16 @@
                   打开
                 </button>
                 <button
-                  class="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                  class="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex items-center gap-1"
+                  :disabled="uninstallingPlugins.has(plugin.id)"
                   @click="uninstallPlugin(plugin)"
                 >
-                  卸载
+                  <RefreshCw
+                    v-if="uninstallingPlugins.has(plugin.id)"
+                    :size="14"
+                    class="animate-spin"
+                  />
+                  {{ uninstallingPlugins.has(plugin.id) ? '卸载中...' : '卸载' }}
                 </button>
               </template>
               <button
@@ -129,6 +141,8 @@ const searchQuery = ref('')
 const plugins = ref<Plugin[]>([])
 const selectedCategory = ref('全部')
 const isLoading = ref(false)
+const installingPlugins = ref<Set<string>>(new Set())
+const uninstallingPlugins = ref<Set<string>>(new Set())
 
 const categories = ['全部', '开发工具', '效率工具', '娱乐', '系统工具', '图形设计', '其他']
 
@@ -192,13 +206,20 @@ function refreshPlugins() {
 
 async function installPlugin(plugin: Plugin) {
   console.log('安装插件:', plugin.pluginName)
-  // TODO: 实现安装逻辑
-  await trpcClient.plugin.installPlugin.mutate({ id: plugin.id })
-  await loadPlugins()
+  installingPlugins.value.add(plugin.id)
+  try {
+    await trpcClient.plugin.installPlugin.mutate({ id: plugin.id })
+    await loadPlugins()
+  } catch (error) {
+    console.error('安装插件失败:', error)
+  } finally {
+    installingPlugins.value.delete(plugin.id)
+  }
 }
 
 function uninstallPlugin(plugin: Plugin) {
   console.log('卸载插件:', plugin.pluginName)
+  uninstallingPlugins.value.add(plugin.id)
   trpcClient.plugin.uninstallPlugin
     .mutate({ id: plugin.id })
     .then(() => {
@@ -207,6 +228,9 @@ function uninstallPlugin(plugin: Plugin) {
     })
     .catch((error) => {
       console.error('卸载插件失败:', error)
+    })
+    .finally(() => {
+      uninstallingPlugins.value.delete(plugin.id)
     })
 }
 

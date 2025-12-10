@@ -122,6 +122,7 @@ function handleClick(item) {
   trpcClient.plugin.openPlugin.mutate({ id: item.id })
   enterApp.value = true
   currentPlugin.value = item
+  query.value = ''
 }
 
 function handleInput(e) {
