@@ -14,6 +14,8 @@ import { SpawnUtil } from '../../utils/spawn-util'
 import pluginJsTemp from '../../../../resources/plugin.js?asset'
 import { BaseResponse } from '@common/constants/base-response'
 import { autoTryCatch } from '@main/decorators/auto-try-catch'
+import { createIpcTrpcServer } from '@main/extensions/trpc/trpc-server'
+import { initElectronExposeRouter } from '@main/electron-expose/router'
 
 @injectable()
 export default class PluginService {
@@ -45,13 +47,22 @@ export default class PluginService {
     }
     this.extensionHost = fork(extensions)
     this.extensionTrpcClient = createIpcTrpcClient(this.extensionHost)
+    createIpcTrpcServer({
+      router: initElectronExposeRouter({ pluginService: this }),
+      process: this.extensionHost
+    })
+    await this.extensionTrpcClient.initConfig.mutate({
+      config: { extensionsDir: this.extensionsDir }
+    })
     return BaseResponse.successMessage('启动成功')
   }
 
   @autoTryCatch({ errorMsg: '插件安装失败' })
   async installPlugin(id: string) {
-    await SpawnUtil.exec('npm', ['install', id, '--registry=http://npm.shilim.cn/'], {
+    await SpawnUtil.exec('npm', ['install', id, '--registry=http://npm.shilim.cn'], {
       cwd: this.extensionsDir
+    }).catch((error) => {
+      console.error('安装插件失败:', error)
     })
     return BaseResponse.successMessage('安装成功')
   }
@@ -86,6 +97,7 @@ export default class PluginService {
       this.closePlugin()
     }
     this.currentPluginId = id
+    await this.extensionTrpcClient.registerPlugin.mutate({ id, backend: plugin.backend })
     const pluginSession = session.fromPartition(`persist:${id}`)
     const pluginPreloadId = pluginSession.registerPreloadScript({
       type: 'frame',
@@ -141,6 +153,7 @@ export default class PluginService {
   @autoTryCatch({ errorMsg: '关闭插件失败' })
   closePlugin() {
     const pluginPreloadId = this.pluginSessionMap.get(this.currentPluginId)
+    if (!this.currentPluginId) return
     if (this.currentPluginId && pluginPreloadId) {
       this.subWindow.webContents.session.unregisterPreloadScript(pluginPreloadId)
       this.pluginSessionMap.delete(this.currentPluginId)

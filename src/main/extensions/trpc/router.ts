@@ -5,14 +5,25 @@ import { loadJson5 } from '../../utils/json-util'
 import { Plugin } from '@common/types/plugin'
 import { systemPluginList } from '../plugin-data/system-plugin'
 import { marketplacePluginList } from '../plugin-data/market-plugin'
+import { createIpcTrpcClient } from './trpc-client'
+import { AppRouter as ElectronExposeAppRouter } from '@main/electron-expose/router'
 
 const plugins: Map<string, any> = new Map()
 const t = initTRPC.context().create()
 
 let installedPlugins: Plugin[] = []
 
+const mainTrpcClient = createIpcTrpcClient<ElectronExposeAppRouter>(process)
+
+let config: {
+  extensionsDir: string
+} = {}
+
 export const appRouter = t.router({
-  getMarketplacePluginList: t.procedure.query(() => {
+  initConfig: t.procedure.input(z.any()).mutation(({ input }) => {
+    config = input
+  }),
+  getMarketplacePluginList: t.procedure.query(async () => {
     return marketplacePluginList
   }),
   getInstalledPluginList: t.procedure
@@ -38,12 +49,44 @@ export const appRouter = t.router({
     return installedPlugins.find((item) => item.id === input.id)
   }),
   registerPlugin: t.procedure
-    .input(z.object({ id: z.string(), root: z.string(), backend: z.string() }))
+    .input(z.object({ id: z.string(), backend: z.string() }))
     .mutation(async ({ input }) => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const Module = await require(join(input.root, input.backend))
+      const Module = await require(
+        input.backend.includes(':')
+          ? input.backend
+          : join(config.extensionsDir, 'node_modules', input.id, input.backend)
+      )
       console.log('Module:', Module)
-      plugins.set(input.id, new Module.default())
+      const Invoke = new Proxy(
+        {},
+        {
+          /**
+           * 拦截属性访问（如 Invoke.xxx）
+           * @param {Object} target - 代理的目标对象（空对象）
+           * @param {string} prop - 访问的属性名（如 'xxx'）
+           * @param {Object} receiver - 代理对象本身
+           * @returns {Function|any} 执行 invoke 并返回结果（或返回函数延迟执行）
+           */
+          get(target, prop, receiver) {
+            // 特殊处理：如果访问 toString/valueOf 等内置属性，返回默认值
+            if (['toString', 'valueOf', 'constructor'].includes(prop as string)) {
+              return Reflect.get(target, prop, receiver)
+            }
+            return (extraOptions = {}) => {
+              console.log('调用')
+              return mainTrpcClient.invokePluginMethod.mutate({
+                id: input.id,
+                methodName: prop as string,
+                params: extraOptions
+              })
+            }
+          }
+        }
+      )
+      plugins.set(input.id, new Module.default(Invoke))
+      console.log(plugins.get(input.id))
+
       // plugins.set(input.id, new Module())
     }),
   unInstallPlugin: t.procedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {

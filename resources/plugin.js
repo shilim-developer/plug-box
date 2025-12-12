@@ -10,8 +10,8 @@ class PreloadIpc {
    * @param {any} data - 发送的数据
    * @returns {Promise<any>} 主进程返回的结果
    */
-  invoke(channel, data = {}) {
-    return electron.ipcRenderer.invoke(`${this.pluginName}:${channel}`, data)
+  invoke(data = {}) {
+    return electron.ipcRenderer.invoke(`${this.pluginName}:invoke`, data)
   }
   /**
    * 单向通信（send）：渲染进程 -> 主进程（无返回值）
@@ -31,7 +31,7 @@ class PreloadIpc {
     const wrappedCallback = (event, ...args) => callback(...args)
     electron.ipcRenderer.on(`${this.pluginName}:${channel}`, wrappedCallback)
     return () => {
-      electron.ipcRenderer.removeListener(channel, wrappedCallback)
+      electron.ipcRenderer.removeListener(`${this.pluginName}:${channel}`, wrappedCallback)
     }
   }
   /**

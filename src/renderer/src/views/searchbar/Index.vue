@@ -115,6 +115,14 @@ watch(query, () => {
 onMounted(async () => {
   list.value = await trpcClient.plugin.getInstalledPluginList.query()
   list.value = [...list.value]
+  trpcClient.plugin.message.subscribe(undefined, {
+    onData: (data: { type: string; data: any }) => {
+      if (data.type === 'openPlugin') {
+        console.log(data)
+        handleClick(data.data)
+      }
+    }
+  })
 })
 
 function handleClick(item) {

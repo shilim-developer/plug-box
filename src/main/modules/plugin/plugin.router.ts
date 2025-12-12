@@ -4,6 +4,10 @@ import { pick } from 'es-toolkit/compat'
 import type { PickMultiplePaths, RouterFilterTypes } from '../../trpc/trpc-types'
 import TrpcService from '../trpc/trpc.service'
 import z from 'zod'
+import { zAsyncIterable } from '@main/trpc/z-async-iterable'
+import { on } from 'events'
+
+export const PluginMessage = Symbol('plugin:message')
 
 @injectable()
 export default class PluginRouter {
@@ -13,9 +17,30 @@ export default class PluginRouter {
   ) {}
 
   private _router() {
-    const { publicProcedure } = this.trpcService
+    const { publicProcedure, ee } = this.trpcService
     return {
       plugin: {
+        message: publicProcedure
+          .output(
+            zAsyncIterable({
+              yield: z.object({
+                type: z.string(),
+                data: z.any()
+              })
+            })
+          )
+          .subscription(async function* (opts) {
+            for await (const [data] of on(ee, PluginMessage, {
+              signal: opts.signal
+            })) {
+              yield data
+            }
+          }),
+        sendMessage: publicProcedure
+          .input(z.object({ type: z.string(), data: z.any() }))
+          .mutation(({ input }) => {
+            ee.emit(PluginMessage, input)
+          }),
         getMarketplacePluginList: publicProcedure.query(() => {
           return this.pluginService.getMarketplacePluginList()
         }),

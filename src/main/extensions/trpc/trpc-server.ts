@@ -17,6 +17,7 @@ import {
   TRPCResultMessage,
   Unpromise
 } from '@trpc/server/unstable-core-do-not-import'
+import { ChildProcess } from 'child_process'
 import { CreateContextOptions, MaybePromise } from 'trpc-electron/main'
 
 export async function handleIPCMessage<TRouter extends AnyTRPCRouter>({
@@ -32,13 +33,14 @@ export async function handleIPCMessage<TRouter extends AnyTRPCRouter>({
   internalId: string
   message: any
   subscriptions: Map<string, AbortController>
-  process: NodeJS.Process
+  process: NodeJS.Process | ChildProcess
 }) {
   if (message.method === 'subscription.stop') {
     subscriptions.get(internalId)?.abort()
     return
   }
 
+  if (!message.operation) return
   const { type, input: serializedInput, path, id } = message.operation
   const input = serializedInput
     ? router._def._config.transformer.input.deserialize(serializedInput)
@@ -213,7 +215,7 @@ export async function handleIPCMessage<TRouter extends AnyTRPCRouter>({
 }
 
 class IPCHandler<TRouter extends AnyTRPCRouter> {
-  #process: NodeJS.Process
+  #process: NodeJS.Process | ChildProcess
   #subscriptions: Map<string, AbortController> = new Map()
 
   constructor({
@@ -221,7 +223,7 @@ class IPCHandler<TRouter extends AnyTRPCRouter> {
     createContext,
     router
   }: {
-    process: NodeJS.Process
+    process: NodeJS.Process | ChildProcess
     createContext?: (opts: CreateContextOptions) => MaybePromise<inferRouterContext<TRouter>>
     router: TRouter
   }) {
@@ -241,9 +243,10 @@ class IPCHandler<TRouter extends AnyTRPCRouter> {
 
 export function createIpcTrpcServer<TRouter extends AnyTRPCRouter>({
   createContext,
+  process,
   router
 }: {
-  process: NodeJS.Process
+  process: NodeJS.Process | ChildProcess
   createContext?: (opts: CreateContextOptions) => Promise<inferRouterContext<TRouter>>
   router: TRouter
 }) {

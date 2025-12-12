@@ -2,7 +2,6 @@ import { createTRPCClient, TRPCClientError, TRPCLink, type Operation } from '@tr
 import type { ChildProcess } from 'child_process'
 import { AnyTRPCRouter, inferRouterContext, TRPCProcedureType } from '@trpc/server'
 import { TRPCResponseMessage } from '@trpc/server/rpc'
-import { AppRouter } from './router'
 import { observable, Observer } from '@trpc/server/observable'
 import { transformResult } from '@trpc/server/unstable-core-do-not-import'
 import { getTransformer } from '@trpc/client/unstable-internals'
@@ -26,8 +25,8 @@ type IPCRequest = {
 
 class IPCClient {
   #pendingRequests = new Map<string | number, IPCRequest>()
-  #childProcess: ChildProcess
-  constructor(childProcess: ChildProcess) {
+  #childProcess: ChildProcess | NodeJS.Process
+  constructor(childProcess: ChildProcess | NodeJS.Process) {
     this.#childProcess = childProcess
     this.#childProcess.on('message', (response: TRPCResponseMessage) => {
       this.#handleResponse(response)
@@ -54,14 +53,14 @@ class IPCClient {
       callbacks,
       op
     })
-    this.#childProcess.send({ method: 'request', operation: op })
+    this.#childProcess.send?.({ method: 'request', operation: op })
     return () => {
       const callbacks = this.#pendingRequests.get(id)?.callbacks
       this.#pendingRequests.delete(id)
       callbacks?.complete()
 
       if (type === 'subscription') {
-        this.#childProcess.send({
+        this.#childProcess.send?.({
           id,
           method: 'subscription.stop'
         })
@@ -71,7 +70,7 @@ class IPCClient {
 }
 
 function ipcLink<TRouter extends AnyTRPCRouter>(
-  childProcess: ChildProcess,
+  childProcess: ChildProcess | NodeJS.Process,
   opts?: IPCLinkOptions<TRouter>
 ): TRPCLink<TRouter> {
   return () => {
@@ -112,8 +111,10 @@ function ipcLink<TRouter extends AnyTRPCRouter>(
   }
 }
 
-export function createIpcTrpcClient(childProcess: ChildProcess) {
-  return createTRPCClient<AppRouter>({
+export function createIpcTrpcClient<T extends AnyTRPCRouter>(
+  childProcess: ChildProcess | NodeJS.Process
+) {
+  return createTRPCClient<T>({
     links: [ipcLink(childProcess)]
   })
 }

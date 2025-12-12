@@ -121,7 +121,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, toRaw } from 'vue'
 import { PackageOpen, Package, PackageSearch, Star, RefreshCw, Settings } from 'lucide-vue-next'
 import { trpcClient } from '@renderer/trpc/trpc-client'
 
@@ -235,7 +235,7 @@ function uninstallPlugin(plugin: Plugin) {
 }
 
 function openPlugin(plugin: Plugin) {
-  trpcClient.plugin.openPlugin.mutate({ id: plugin.id })
+  trpcClient.plugin.sendMessage.mutate({ type: 'openPlugin', data: toRaw(plugin) })
 }
 
 function showPluginDetails(plugin: Plugin) {
