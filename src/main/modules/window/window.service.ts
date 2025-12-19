@@ -17,9 +17,9 @@ export default class WindowService {
       frame: false,
       // autoHideMenuBar: true,
       icon,
+      backgroundColor: '#1c1c1c',
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
-        hello: 'world',
         sandbox: false
       }
     })

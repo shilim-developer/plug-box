@@ -2,7 +2,8 @@ import { MainIpc } from './../../ipc/main-ipc'
 import { inject, injectable } from 'inversify'
 import TrpcService from '../trpc/trpc.service'
 import WindowService from '../window/window.service'
-import { WebContentsView, app, screen, session } from 'electron'
+import { SettingsService } from '../settings/settings.service'
+import { WebContentsView, app, session } from 'electron'
 import { join } from 'path'
 import { ChildProcess, fork } from 'child_process'
 import extensions from '../../extensions/index?modulePath'
@@ -16,19 +17,16 @@ import { BaseResponse } from '@common/constants/base-response'
 import { autoTryCatch } from '@main/decorators/auto-try-catch'
 import { createIpcTrpcServer } from '@main/extensions/trpc/trpc-server'
 import { initElectronExposeRouter } from '@main/electron-expose/router'
+import { PluginStore } from './models/plugin-store'
+import { logger } from '@main/utils/logger'
+import { ScreenCenterHelper } from '@main/utils/screen-util'
 
 @injectable()
 export default class PluginService {
   extensionHost!: ChildProcess
   extensionTrpcClient!: TRPCClient<AppRouter>
   extensionsDir = join(app.getPath('userData'), './extensions')
-  pluginMap = new Map<
-    string,
-    {
-      view: WebContentsView
-      preloadId: string
-    }
-  >()
+  pluginMap = new Map<string, PluginStore>()
   subWindow!: WebContentsView
   mainIpc = new MainIpc()
   pluginSessionMap = new Map<string, string>()
@@ -36,7 +34,8 @@ export default class PluginService {
 
   constructor(
     @inject(TrpcService) private readonly trpcService: TrpcService,
-    @inject(WindowService) private readonly windowService: WindowService
+    @inject(WindowService) private readonly windowService: WindowService,
+    @inject(SettingsService) private readonly settingsService: SettingsService
   ) {}
 
   @autoTryCatch({ errorMsg: '插件启动失败' })
@@ -52,7 +51,7 @@ export default class PluginService {
       process: this.extensionHost
     })
     await this.extensionTrpcClient.initConfig.mutate({
-      config: { extensionsDir: this.extensionsDir }
+      extensionsDir: this.extensionsDir
     })
     return BaseResponse.successMessage('启动成功')
   }
@@ -91,13 +90,15 @@ export default class PluginService {
   @autoTryCatch({ errorMsg: '打开插件失败' })
   async openPlugin(id: string) {
     const plugin = await this.extensionTrpcClient.getPlugin.query({ id })
-    console.log('plugin:', plugin)
     if (!plugin) return
+    logger.info('打开插件', plugin?.pluginName)
     if (this.currentPluginId) {
       this.closePlugin()
     }
     this.currentPluginId = id
-    await this.extensionTrpcClient.registerPlugin.mutate({ id, backend: plugin.backend })
+    if (plugin.backend) {
+      await this.extensionTrpcClient.registerPlugin.mutate({ id, backend: plugin.backend })
+    }
     const pluginSession = session.fromPartition(`persist:${id}`)
     const pluginPreloadId = pluginSession.registerPreloadScript({
       type: 'frame',
@@ -105,63 +106,70 @@ export default class PluginService {
         ? join(__dirname, '../preload/index.js')
         : join(this.extensionsDir, 'node_modules', id, 'plugin.js')
     })
-    this.pluginSessionMap.set(id, pluginPreloadId)
     const pluginJs = join(this.extensionsDir, 'node_modules', id, 'plugin.js')
     if (!existsSync(pluginJs) && !plugin.isSystem) {
       writeFileSync(pluginJs, readFileSync(pluginJsTemp).toString().replace('${pluginName}', id))
     }
     const mainWindow = this.windowService.mainWindow
-    this.subWindow = new WebContentsView({
+    const pluginView = new WebContentsView({
       webPreferences: {
         sandbox: false,
         session: pluginSession
-        // preload: plugin.isSystem ? join(__dirname, '../preload/index.js') : pluginJs
       }
     })
-    this.mainIpc.register(`${id}:invoke`, async (data) => {
-      return await this.extensionTrpcClient.invokePluginMethod.mutate({
+    const mainIpcDispose = this.mainIpc.register(`${id}:invoke`, async (data: any) =>
+      this.extensionTrpcClient.invokePluginMethod.mutate({
         id,
         methodName: data.methodName,
         params: data
       })
-    })
-    const newX = (screen.getPrimaryDisplay().bounds.width - 1000) / 2
+    )
     mainWindow.setBounds({
-      x: newX,
+      x: mainWindow.getBounds().x,
       y: mainWindow.getBounds().y,
       width: 1000,
       height: 784
     })
-    this.subWindow.setBounds({ x: 0, y: 60, width: 1000, height: 700 })
-    mainWindow.contentView.addChildView(this.subWindow)
+    pluginView.setBounds({ x: 0, y: 60, width: 1000, height: 700 })
+    ScreenCenterHelper.centerToCursorScreen(mainWindow)
+    mainWindow.contentView.addChildView(pluginView)
     if (plugin.view.includes('http')) {
-      this.subWindow.webContents.loadURL(plugin.view)
+      pluginView.webContents.loadURL(plugin.view)
     } else {
-      this.subWindow.webContents.loadFile(join(this.extensionsDir, 'node_modules', id, plugin.view))
+      pluginView.webContents.loadFile(join(this.extensionsDir, 'node_modules', id, plugin.view))
     }
-    this.subWindow.webContents.openDevTools()
-    mainWindow.addListener('resize', () => {
-      this.subWindow.setBounds({
+    // pluginView.webContents.openDevTools()
+    const resizeFun = () => {
+      pluginView.setBounds({
         x: 0,
         y: 60,
         width: mainWindow.getBounds().width,
         height: mainWindow.getBounds().height - 84
       })
+    }
+    mainWindow.addListener('resize', resizeFun)
+    this.pluginMap.set(id, {
+      pluginView,
+      preloadId: pluginPreloadId,
+      dispose: () => {
+        mainIpcDispose()
+        pluginView.webContents.session.unregisterPreloadScript(pluginPreloadId)
+        const { x, y, height } = this.windowService.mainWindow.getBounds()
+        this.windowService.mainWindow.setBounds({ x, y, width: 600, height })
+        ScreenCenterHelper.centerToCursorScreen(mainWindow)
+        mainWindow.removeListener('resize', resizeFun)
+        mainWindow.contentView.removeChildView(pluginView)
+        this.currentPluginId = ''
+        this.pluginMap.delete(id)
+      }
     })
+    return BaseResponse.success(plugin)
   }
 
   @autoTryCatch({ errorMsg: '关闭插件失败' })
   closePlugin() {
-    const pluginPreloadId = this.pluginSessionMap.get(this.currentPluginId)
-    if (!this.currentPluginId) return
-    if (this.currentPluginId && pluginPreloadId) {
-      this.subWindow.webContents.session.unregisterPreloadScript(pluginPreloadId)
-      this.pluginSessionMap.delete(this.currentPluginId)
+    if (this.currentPluginId) {
+      this.pluginMap.get(this.currentPluginId)?.dispose()
     }
-    this.windowService.mainWindow.contentView.removeChildView(this.subWindow)
-    const newX = (screen.getPrimaryDisplay().bounds.width - 600) / 2
-    const { y, height } = this.windowService.mainWindow.getBounds()
-    this.windowService.mainWindow.setBounds({ x: newX, y, width: 600, height })
-    this.currentPluginId = ''
   }
 }

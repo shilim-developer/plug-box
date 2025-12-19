@@ -1,5 +1,6 @@
 import { inject, injectable } from 'inversify'
 import PluginService from './plugin.service'
+import { SettingsService } from '../settings/settings.service'
 import { pick } from 'es-toolkit/compat'
 import type { PickMultiplePaths, RouterFilterTypes } from '../../trpc/trpc-types'
 import TrpcService from '../trpc/trpc.service'
@@ -13,7 +14,8 @@ export const PluginMessage = Symbol('plugin:message')
 export default class PluginRouter {
   constructor(
     @inject(TrpcService) private readonly trpcService: TrpcService,
-    @inject(PluginService) private readonly pluginService: PluginService
+    @inject(PluginService) private readonly pluginService: PluginService,
+    @inject(SettingsService) private readonly settingsService: SettingsService
   ) {}
 
   private _router() {
@@ -44,8 +46,17 @@ export default class PluginRouter {
         getMarketplacePluginList: publicProcedure.query(() => {
           return this.pluginService.getMarketplacePluginList()
         }),
-        getInstalledPluginList: publicProcedure.query(() => {
-          return this.pluginService.getInstalledPluginList()
+        getInstalledPluginList: publicProcedure.query(async () => {
+          const plugins = await this.pluginService.getInstalledPluginList()
+
+          // 自动注册每个插件的配置 schema
+          for (const plugin of plugins) {
+            if (plugin.configuration) {
+              this.settingsService.registerConfiguration(plugin.id, plugin.configuration)
+            }
+          }
+
+          return plugins
         }),
         installPlugin: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
           return this.pluginService.installPlugin(input.id)
@@ -56,7 +67,7 @@ export default class PluginRouter {
             return this.pluginService.uninstallPlugin(input.id)
           }),
         openPlugin: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
-          this.pluginService.openPlugin(input.id)
+          return this.pluginService.openPlugin(input.id)
         }),
         closePlugin: publicProcedure.mutation(() => {
           this.pluginService.closePlugin()

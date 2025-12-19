@@ -38,16 +38,16 @@ export default class AppService {
       const appRouter = this.appRouterFactory.create()
       createIPCHandler({ router: appRouter, windows: [mainWindow] })
       this.pluginService.startPluginProgress()
-      exec('npm -v', (error, stdout, stderr) => {
-        if (error) {
-          console.error(`执行出错: ${error}`)
-          return
-        }
-        console.log(`stdout: ${stdout}`)
-        if (stderr) {
-          console.error(`stderr: ${stderr}`)
-        }
-      })
+      // exec('npm -v', (error, stdout, stderr) => {
+      //   if (error) {
+      //     console.error(`执行出错: ${error}`)
+      //     return
+      //   }
+      //   console.log(`stdout: ${stdout}`)
+      //   if (stderr) {
+      //     console.error(`stderr: ${stderr}`)
+      //   }
+      // })
       // 创建子进程
       // try {
       //   const extensionHost = fork(extensions)

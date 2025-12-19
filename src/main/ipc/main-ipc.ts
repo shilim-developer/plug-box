@@ -29,7 +29,6 @@ export class MainIpc {
           data: result,
           message: '操作成功'
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {
         // 统一异常返回
         return {
@@ -43,6 +42,7 @@ export class MainIpc {
 
     this.handlers.set(channel, handler)
     console.log(`IPC 通道 ${channel} 注册成功`)
+    return () => this.unregister(channel)
   }
 
   /**

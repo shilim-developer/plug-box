@@ -20,6 +20,11 @@ const blankRoutes: RouteModuleList = [
         path: 'marketplace',
         name: 'marketplace',
         component: () => import('@renderer/views/marketplace/Index.vue')
+      },
+      {
+        path: 'settings',
+        name: 'settings',
+        component: () => import('@renderer/views/settings/Index.vue')
       }
     ]
   }

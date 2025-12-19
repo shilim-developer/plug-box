@@ -7,6 +7,7 @@ import { systemPluginList } from '../plugin-data/system-plugin'
 import { marketplacePluginList } from '../plugin-data/market-plugin'
 import { createIpcTrpcClient } from './trpc-client'
 import { AppRouter as ElectronExposeAppRouter } from '@main/electron-expose/router'
+import { logger } from '@main/utils/logger'
 
 const plugins: Map<string, any> = new Map()
 const t = initTRPC.context().create()
@@ -42,7 +43,10 @@ export const appRouter = t.router({
         )
         installedPlugins.push(plugJson)
       }
-      console.log('plugins:', plugins)
+      logger.info(
+        '已安装插件',
+        installedPlugins.map((item) => item.pluginName)
+      )
       return installedPlugins
     }),
   getPlugin: t.procedure.input(z.object({ id: z.string() })).query(({ input }) => {
@@ -51,13 +55,14 @@ export const appRouter = t.router({
   registerPlugin: t.procedure
     .input(z.object({ id: z.string(), backend: z.string() }))
     .mutation(async ({ input }) => {
+      console.log('input:', config)
+      console.log('Module:', join(config.extensionsDir, 'node_modules', input.id, input.backend))
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const Module = await require(
         input.backend.includes(':')
           ? input.backend
           : join(config.extensionsDir, 'node_modules', input.id, input.backend)
       )
-      console.log('Module:', Module)
       const Invoke = new Proxy(
         {},
         {
@@ -75,7 +80,7 @@ export const appRouter = t.router({
             }
             return (extraOptions = {}) => {
               console.log('调用')
-              return mainTrpcClient.invokePluginMethod.mutate({
+              return mainTrpcClient.invokeSystemMethod.mutate({
                 id: input.id,
                 methodName: prop as string,
                 params: extraOptions

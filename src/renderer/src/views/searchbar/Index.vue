@@ -6,32 +6,37 @@
       <div class="flex justify-center text-blue-400">
         <div
           v-if="enterApp"
-          class="flex items-center gap-2 text-xl font-mono border border-gray-700 rounded px-2 py-1 text-blue-400"
+          class="flex items-center gap-2 text-xl border border-gray-700 rounded px-2 py-1 text-blue-400"
         >
-          <Calculator :size="24"></Calculator>
+          <img
+            v-if="currentPlugin.logo"
+            :src="currentPlugin.logo"
+            :alt="currentPlugin.pluginName"
+            class="w-6 h-6 rounded"
+          />
+          <ToolCase v-else :size="24" />
           <span>{{ currentPlugin.pluginName }}</span>
           <X :size="20" color="#6a7282" class="cursor-pointer" @click="closePlugin" />
         </div>
-        <!-- <span v-else>logo</span> -->
       </div>
       <input
         ref="inputRef"
         v-model="query"
         type="text"
-        class="flex-1 bg-transparent border-none outline-none text-2xl px-2 text-blue-400 placeholder-gray-500 font-light focus:ring-0"
-        :placeholder="enterApp ? 'Press Backspace to exit' : 'Type to search...'"
+        class="flex-1 bg-transparent border-none outline-none text-xl px-2 text-blue-400 placeholder-gray-500 font-light focus:ring-0"
+        :placeholder="enterApp ? '按 Esc 退出' : '输入关键词搜索...'"
         autofocus
         @input="handleInput"
         @keydown="handleKeydown"
       />
       <div
-        class="flex items-center gap-2 text-xs text-gray-500 font-mono border border-gray-700 rounded px-2 py-1"
+        class="w-[40px] h-[40px] mt-[5px] flex items-center gap-2 text-xs text-gray-500 font-mono border border-gray-700 rounded-full"
         style="-webkit-app-region: drag"
       >
-        <span>Logo</span>
+        <!-- <span>Logo</span> -->
         <img
-          class="w-4 h-4"
-          src="https://github.com/shilim-developer/json-plugin/raw/master/apps/web/public/logo.png"
+          class="w-full h-full rounded-full"
+          src="@renderer/assets/image/logo.png"
           alt=""
           srcset=""
         />
@@ -51,7 +56,7 @@
               class="text-lg font-medium truncate"
               :class="index === selectedIndex ? 'text-white' : 'text-gray-300'"
             >
-              {{ item.pluginName }}
+              <span v-html="highlightPluginName(item.pluginName, item.matchIndex)"></span>
             </h3>
           </div>
           <p class="text-sm text-gray-500 truncate">
@@ -64,35 +69,38 @@
       class="bg-[#181818] h-6 px-4 flex items-center justify-between text-gray-500 text-xs"
       style="-webkit-app-region: drag"
     >
-      <span>标题</span>
-      <Settings :size="16"></Settings>
+      <span>plug-box</span>
+      <Settings
+        :size="16"
+        class="cursor-pointer hover:text-white transition-colors"
+        style="-webkit-app-region: no-drag"
+        @click="openSettings"
+      ></Settings>
     </div>
   </div>
 </template>
 <script lang="ts" setup>
-import { ref, onMounted, computed, watch } from 'vue'
-import { Calculator, Settings, X } from 'lucide-vue-next'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { ToolCase, Settings, X } from 'lucide-vue-next'
 import { trpcClient } from '@renderer/trpc/trpc-client'
 import { Plugin } from '@common/types/plugin'
+import { match } from 'pinyin-pro'
 
 const query = ref('')
 const rawQuery = ref('')
-const list = ref<
-  {
-    id: string
-    version: string
-    pluginName: string
-    description: string
-    view: string
-    backend: string
-    root: string
-  }[]
->([])
+const list = ref<Plugin[]>([])
 const selectedIndex = ref(0)
-const enterApp = ref(false)
-const currentPlugin = ref<Plugin>(null)
+const currentPlugin = ref<Plugin>({} as Plugin)
+const enterApp = computed(() => !!currentPlugin.value.id)
 const filterList = computed(() => {
-  return rawQuery.value ? list.value.filter((item) => item.pluginName.includes(rawQuery.value)) : []
+  return rawQuery.value
+    ? list.value
+        .map((item) => ({
+          ...item,
+          matchIndex: match(item.pluginName, rawQuery.value, { continuous: true })
+        }))
+        .filter((item) => item.pluginName.includes(rawQuery.value) || item.matchIndex)
+    : []
 })
 
 function initHeight() {
@@ -114,6 +122,7 @@ watch(query, () => {
 
 onMounted(async () => {
   list.value = await trpcClient.plugin.getInstalledPluginList.query()
+  console.log('list.value :', list.value)
   list.value = [...list.value]
   trpcClient.plugin.message.subscribe(undefined, {
     onData: (data: { type: string; data: any }) => {
@@ -123,6 +132,7 @@ onMounted(async () => {
       }
     }
   })
+  initHeight()
 })
 
 function handleClick(item) {
@@ -155,19 +165,49 @@ async function handleKeydown(e) {
     if (filterList.value[selectedIndex.value]) {
       handleClick(filterList.value[selectedIndex.value])
     }
-  } else if (e.key === 'Backspace') {
-    // if (enterApp.value && query.value.length === 0) {
-    //   trpcClient.plugin.closePlugin.mutate()
-    //   enterApp.value = false
-    //   initHeight()
-    // }
+  } else if (e.key === 'Escape') {
+    closePlugin()
   }
 }
 
+const inputRef = ref<HTMLInputElement>()
+
 function closePlugin() {
   trpcClient.plugin.closePlugin.mutate()
-  enterApp.value = false
+  currentPlugin.value = {} as Plugin
+  refreshPluginList()
+  rawQuery.value = ''
   initHeight()
+  nextTick(() => {
+    inputRef.value?.focus()
+  })
+}
+
+async function openSettings() {
+  currentPlugin.value = (await trpcClient.plugin.openPlugin.mutate({ id: 'settings' })).data
+}
+
+async function refreshPluginList() {
+  list.value = await trpcClient.plugin.getInstalledPluginList.query()
+  initHeight()
+}
+
+function highlightPluginName(pluginName: string, matchIndex: number[]) {
+  if (!matchIndex || matchIndex.length === 0) {
+    return pluginName
+  }
+
+  let result = ''
+  for (let i = 0; i < pluginName.length; i++) {
+    if (matchIndex.includes(i)) {
+      // 添加高亮标记
+      result += `<span class="text-blue-400 font-medium">${pluginName[i]}</span>`
+    } else {
+      result += pluginName[i]
+    }
+  }
+
+  return result
 }
 </script>
 <style lang="scss" scoped></style>

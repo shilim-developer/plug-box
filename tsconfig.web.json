@@ -17,6 +17,9 @@
       "electron-vite/node"
     ],
     "paths": {
+      "@common/*": [
+        "src/common/*"
+      ],
       "@renderer/*": [
         "src/renderer/src/*"
       ],

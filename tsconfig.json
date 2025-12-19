@@ -8,11 +8,11 @@
       "path": "./tsconfig.web.json"
     }
   ],
-  // "compilerOptions": {
-  //   "ignoreDeprecations": "6.0",
-  //   "baseUrl": "./src/renderer/src",
-  //   "paths": {
-  //     "@/*": ["./*"]
-  //   }
-  // }
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "baseUrl": "./src/renderer/src",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  }
 }
