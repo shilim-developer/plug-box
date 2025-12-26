@@ -16,7 +16,9 @@ export default class SettingsRouter {
     const { publicProcedure } = this.trpcService
     return {
       settings: {
-        init: publicProcedure.mutation(() => this.settingsService.init()),
+        init: publicProcedure
+          .input(z.object({ appPath: z.string() }))
+          .mutation(({ input }) => this.settingsService.init(input.appPath)),
         getSettings: publicProcedure
           .input(z.object({ pluginId: z.string().optional() }).optional())
           .query(({ input }) => this.settingsService.getSettings(input?.pluginId)),
@@ -25,10 +27,14 @@ export default class SettingsRouter {
           .query(({ input }) => this.settingsService.getSetting(input.pluginId, input.key)),
         updateSettings: publicProcedure
           .input(z.object({ pluginId: z.string(), settings: z.record(z.unknown()) }))
-          .mutation(({ input }) => this.settingsService.updateSettings(input.pluginId, input.settings)),
+          .mutation(({ input }) =>
+            this.settingsService.updateSettings(input.pluginId, input.settings)
+          ),
         updateSetting: publicProcedure
           .input(z.object({ pluginId: z.string(), key: z.string(), value: z.unknown() }))
-          .mutation(({ input }) => this.settingsService.updateSetting(input.pluginId, input.key, input.value)),
+          .mutation(({ input }) =>
+            this.settingsService.updateSetting(input.pluginId, input.key, input.value)
+          ),
         resetSettings: publicProcedure
           .input(z.object({ pluginId: z.string() }))
           .mutation(({ input }) => this.settingsService.resetSettings(input.pluginId)),

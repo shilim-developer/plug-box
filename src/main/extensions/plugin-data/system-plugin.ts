@@ -1,3 +1,4 @@
+import { PluginCategory } from '@common/constants/plugin-category'
 import { Plugin } from '@common/types/plugin'
 
 export const systemPluginList: Plugin[] = [
@@ -9,6 +10,7 @@ export const systemPluginList: Plugin[] = [
     view: process.env['ELECTRON_RENDERER_URL'] + '#/blank/settings',
     // backend: 'D:\\git\\json-plugin\\dist\\backend\\index.mjs',
     isSystem: true,
+    category: PluginCategory.SYSTEM,
     configuration: {
       registry: {
         title: '插件市场地址',
@@ -51,6 +53,7 @@ export const systemPluginList: Plugin[] = [
     description: '插件市场',
     view: process.env['ELECTRON_RENDERER_URL'] + '#/blank/marketplace',
     // backend: './dist/plugin/index.js',
-    isSystem: true
+    isSystem: true,
+    category: PluginCategory.SYSTEM
   }
 ]

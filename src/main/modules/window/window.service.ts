@@ -1,4 +1,4 @@
-import { BrowserWindow, shell } from 'electron'
+import { BrowserWindow, globalShortcut, shell } from 'electron'
 import icon from '../../../../resources/icon.png?asset'
 import { is } from '@electron-toolkit/utils'
 import { join } from 'path'
@@ -12,13 +12,15 @@ export default class WindowService {
   createWindow(): BrowserWindow {
     this.mainWindow = new BrowserWindow({
       width: 600,
-      height: 760,
+      height: 84,
       show: false,
       frame: false,
       // autoHideMenuBar: true,
       icon,
       backgroundColor: '#1c1c1c',
+      skipTaskbar: true,
       webPreferences: {
+        webSecurity: false,
         preload: join(__dirname, '../preload/index.js'),
         sandbox: false
       }
@@ -40,6 +42,12 @@ export default class WindowService {
     } else {
       this.mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
     }
+    globalShortcut.register('Alt+U', () => {
+      this.mainWindow.show()
+    })
+    // this.mainWindow.addListener('blur', () => {
+    //   this.mainWindow.hide()
+    // })
     return this.mainWindow
   }
 
@@ -75,11 +83,9 @@ export default class WindowService {
       mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'] + '#/blank/searchbar')
       // this.mainWindow.webContents.openDevTools()
     } else {
-      mainWindow.loadFile(
-        join(__dirname, '../renderer/index.html', {
-          hash: '/blank/searchbar'
-        })
-      )
+      mainWindow.loadFile(join(__dirname, '../renderer/index.html'), {
+        hash: '/blank/searchbar'
+      })
     }
     return mainWindow
   }

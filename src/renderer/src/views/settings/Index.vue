@@ -80,8 +80,10 @@
                 <p class="text-gray-400 mt-1">{{ selectedPlugin.description || '暂无描述' }}</p>
                 <div class="flex items-center gap-4 mt-2">
                   <span class="text-sm text-gray-400">版本 {{ selectedPlugin.version }}</span>
-                  <span class="text-sm text-gray-400">
-                    {{ getCategoryLabel(selectedPlugin.category || 'utility') }}
+                  <span
+                    class="px-2 py-1 text-xs font-medium rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                  >
+                    {{ getCategoryLabel(selectedPlugin.category || PluginCategory.OTHER) }}
                   </span>
                 </div>
               </div>
@@ -104,7 +106,7 @@
         </div>
 
         <!-- 配置选项卡 -->
-        <div class="bg-[#252525] border-b border-gray-700/50 flex-shrink-0">
+        <div class="bg-[#252525] border-b border-gray-700/50 shrink-0">
           <div class="flex">
             <button
               v-for="tab in tabs"
@@ -126,41 +128,6 @@
         <div class="flex-1 overflow-y-auto p-6 min-h-0">
           <!-- 常规设置 -->
           <div v-if="activeTab === 'general'" class="space-y-6">
-            <div class="bg-[#1c1c1c] rounded-lg p-4 border border-gray-700/50">
-              <h3 class="text-lg font-medium text-white mb-4">基本设置</h3>
-              <div class="space-y-4">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <label class="text-sm font-medium text-white">启用插件</label>
-                    <p class="text-xs text-gray-400 mt-1">控制插件是否在启动时自动加载</p>
-                  </div>
-                  <label class="relative inline-flex items-center cursor-pointer">
-                    <input v-model="pluginSettings.enabled" type="checkbox" class="sr-only peer" />
-                    <div
-                      class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"
-                    />
-                  </label>
-                </div>
-
-                <div class="flex items-center justify-between">
-                  <div>
-                    <label class="text-sm font-medium text-white">自动启动</label>
-                    <p class="text-xs text-gray-400 mt-1">应用启动时自动打开此插件</p>
-                  </div>
-                  <label class="relative inline-flex items-center cursor-pointer">
-                    <input
-                      v-model="pluginSettings.autoStart"
-                      type="checkbox"
-                      class="sr-only peer"
-                    />
-                    <div
-                      class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"
-                    />
-                  </label>
-                </div>
-              </div>
-            </div>
-
             <div class="bg-[#1c1c1c] rounded-lg p-4 border border-gray-700/50">
               <h3 class="text-lg font-medium text-white mb-4">插件信息</h3>
               <div class="space-y-3">
@@ -476,6 +443,8 @@ import {
   SelectTrigger,
   SelectValue
 } from '@renderer/components/ui/select'
+import { deepToRaw } from '@renderer/utils/utils'
+import { PluginCategory } from '@common/constants/plugin-category'
 
 interface Plugin {
   id: string
@@ -533,10 +502,10 @@ const isLoading = ref(false)
 const uninstallingPlugins = ref<Set<string>>(new Set())
 
 const tabs = [
-  { key: 'general', label: '常规' },
   { key: 'configuration', label: '配置' },
-  { key: 'advanced', label: '高级' },
-  { key: 'permissions', label: '权限' }
+  { key: 'general', label: '常规' }
+  // { key: 'advanced', label: '高级' },
+  // { key: 'permissions', label: '权限' }
 ]
 
 const defaultSettings: PluginSettings = {
@@ -605,7 +574,7 @@ async function selectPlugin(plugin: Plugin) {
     // 初始化配置值,如果设置中没有值则使用默认值
     const configuration: Record<string, unknown> = {}
     if (schema) {
-      for (const [key, property] of Object.entries(schema)) {
+      for (const [key, property] of Object.entries(schema as ConfigurationSchema)) {
         // 如果 settings 中有值就用 settings 的值,否则用默认值
         if (key in settings) {
           configuration[key] = settings[key]
@@ -666,26 +635,56 @@ function removeArrayItem(key: string, index: number) {
   }
 }
 
-function resetSettings() {
-  pluginSettings.value = { ...defaultSettings }
+async function resetSettings() {
+  if (!selectedPlugin.value) return
+
+  if (confirm(`确定要重置插件 "${selectedPlugin.value.pluginName}" 的所有设置吗？`)) {
+    try {
+      // 重置后端配置
+      await trpcClient.settings.resetSettings.mutate({
+        pluginId: selectedPlugin.value.id
+      })
+
+      // 重置前端配置到默认值
+      const configuration: Record<string, unknown> = {}
+      if (selectedPlugin.value.configuration) {
+        for (const [key, property] of Object.entries(selectedPlugin.value.configuration)) {
+          configuration[key] = property.default
+        }
+      }
+
+      pluginSettings.value.configuration = configuration
+
+      console.log(`插件 "${selectedPlugin.value.pluginName}" 的设置已重置`)
+      alert('设置已重置到默认值')
+    } catch (error) {
+      console.error('重置设置失败:', error)
+      alert('重置设置失败，请重试')
+    }
+  }
 }
 
 async function saveSettings() {
   if (!selectedPlugin.value) return
 
   try {
-    // TODO: 实现保存设置的逻辑
-    console.log('保存插件设置:', selectedPlugin.value.id, pluginSettings.value)
-    // await trpcClient.plugin.saveSettings.mutate({
-    //   pluginId: selectedPlugin.value.id,
-    //   settings: pluginSettings.value
-    // })
+    // 保存插件配置到后端
+    await trpcClient.settings.updateSettings.mutate(
+      deepToRaw({
+        pluginId: selectedPlugin.value.id,
+        settings: pluginSettings.value.configuration
+      })
+    )
+    // 可以添加成功通知
+    // 例如使用 toast 或其他通知组件
+    alert('设置保存成功！')
   } catch (error) {
     console.error('保存设置失败:', error)
+    alert('保存设置失败，请重试')
   }
 }
 
 function getCategoryLabel(category: string) {
-  return category
+  return PluginCategory.label(category)
 }
 </script>

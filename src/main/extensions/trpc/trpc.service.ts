@@ -1,11 +1,7 @@
-import { TRPCClient } from '@trpc/client'
 import { initTRPC } from '@trpc/server'
 import { injectable } from 'inversify'
 import { EventEmitter } from 'node:events'
 import { ZodError } from 'zod'
-import { AppRouter } from '@main/extensions/app.router'
-import { createIpcTrpcClient } from '@main/extensions/trpc/trpc-client'
-import { ChildProcess } from 'node:child_process'
 
 @injectable()
 export default class TrpcService {
@@ -26,9 +22,4 @@ export default class TrpcService {
   })
   mergeRouters = this.trpc.mergeRouters
   ee = new EventEmitter()
-
-  extensionTrpcClient!: TRPCClient<AppRouter>
-  initExtensionTrpcClient(extensionHost: ChildProcess) {
-    this.extensionTrpcClient = createIpcTrpcClient(extensionHost)
-  }
 }

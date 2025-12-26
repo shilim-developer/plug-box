@@ -5,7 +5,6 @@ import { createIPCHandler } from 'trpc-electron/main'
 import WindowService from './window/window.service'
 import AppRouterFactory from './app.router'
 import PluginService from './plugin/plugin.service'
-import { exec } from 'child_process'
 
 @injectable()
 export default class AppService {

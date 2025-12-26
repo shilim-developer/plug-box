@@ -2,14 +2,10 @@ import { MainIpc } from './../../ipc/main-ipc'
 import { inject, injectable } from 'inversify'
 import TrpcService from '../trpc/trpc.service'
 import WindowService from '../window/window.service'
-import { SettingsService } from '../settings/settings.service'
 import { WebContentsView, app, session } from 'electron'
 import { join } from 'path'
 import { ChildProcess, fork } from 'child_process'
 import extensions from '../../extensions/index?modulePath'
-import { createIpcTrpcClient } from '../../extensions/trpc/trpc-client'
-import { TRPCClient } from '@trpc/client'
-import { AppRouter } from '../../extensions/trpc/router'
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs-extra'
 import { SpawnUtil } from '../../utils/spawn-util'
 import pluginJsTemp from '../../../../resources/plugin.js?asset'
@@ -20,11 +16,13 @@ import { initElectronExposeRouter } from '@main/electron-expose/router'
 import { PluginStore } from './models/plugin-store'
 import { logger } from '@main/utils/logger'
 import { ScreenCenterHelper } from '@main/utils/screen-util'
+// import { AppRouter } from '@main/extensions/app.router'
+import SettingsService from '../settings/settings.service'
 
 @injectable()
 export default class PluginService {
   extensionHost!: ChildProcess
-  extensionTrpcClient!: TRPCClient<AppRouter>
+  // extensionTrpcClient!: TRPCClient<AppRouter>
   extensionsDir = join(app.getPath('userData'), './extensions')
   pluginMap = new Map<string, PluginStore>()
   subWindow!: WebContentsView
@@ -45,12 +43,14 @@ export default class PluginService {
       mkdirSync(this.extensionsDir)
     }
     this.extensionHost = fork(extensions)
-    this.extensionTrpcClient = createIpcTrpcClient(this.extensionHost)
+    this.trpcService.initExtensionTrpcClient(this.extensionHost)
+    // this.extensionTrpcClient = createIpcTrpcClient(this.extensionHost)
     createIpcTrpcServer({
       router: initElectronExposeRouter({ pluginService: this }),
       process: this.extensionHost
     })
-    await this.extensionTrpcClient.initConfig.mutate({
+    await this.trpcService.extensionTrpcClient.extension.initConfig.mutate({
+      appPath: app.getPath('userData'),
       extensionsDir: this.extensionsDir
     })
     return BaseResponse.successMessage('启动成功')
@@ -71,33 +71,36 @@ export default class PluginService {
     await SpawnUtil.exec('npm', ['uninstall', id], {
       cwd: this.extensionsDir
     })
-    await this.extensionTrpcClient.unInstallPlugin.mutate({ id })
+    await this.trpcService.extensionTrpcClient.extension.unInstallPlugin.mutate({ id })
     return BaseResponse.successMessage('卸载成功')
   }
 
   @autoTryCatch({ errorMsg: '获取插件列表失败' })
   async getMarketplacePluginList() {
-    return this.extensionTrpcClient.getMarketplacePluginList.query()
+    return this.trpcService.extensionTrpcClient.extension.getMarketplacePluginList.query()
   }
 
   @autoTryCatch({ errorMsg: '获取已安装插件列表失败' })
   async getInstalledPluginList() {
-    return this.extensionTrpcClient.getInstalledPluginList.query({
+    return this.trpcService.extensionTrpcClient.extension.getInstalledPluginList.query({
       pluginsDir: this.extensionsDir
     })
   }
 
   @autoTryCatch({ errorMsg: '打开插件失败' })
   async openPlugin(id: string) {
-    const plugin = await this.extensionTrpcClient.getPlugin.query({ id })
-    if (!plugin) return
+    const plugin = await this.trpcService.extensionTrpcClient.extension.getPlugin.query({ id })
+    if (!plugin) return BaseResponse.failMessage('插件不存在')
     logger.info('打开插件', plugin?.pluginName)
     if (this.currentPluginId) {
       this.closePlugin()
     }
     this.currentPluginId = id
     if (plugin.backend) {
-      await this.extensionTrpcClient.registerPlugin.mutate({ id, backend: plugin.backend })
+      await this.trpcService.extensionTrpcClient.extension.registerPlugin.mutate({
+        id,
+        backend: plugin.backend
+      })
     }
     const pluginSession = session.fromPartition(`persist:${id}`)
     const pluginPreloadId = pluginSession.registerPreloadScript({
@@ -113,12 +116,13 @@ export default class PluginService {
     const mainWindow = this.windowService.mainWindow
     const pluginView = new WebContentsView({
       webPreferences: {
+        webSecurity: !plugin.isSystem,
         sandbox: false,
         session: pluginSession
       }
     })
     const mainIpcDispose = this.mainIpc.register(`${id}:invoke`, async (data: any) =>
-      this.extensionTrpcClient.invokePluginMethod.mutate({
+      this.trpcService.extensionTrpcClient.extension.invokePluginMethod.mutate({
         id,
         methodName: data.methodName,
         params: data
@@ -138,7 +142,7 @@ export default class PluginService {
     } else {
       pluginView.webContents.loadFile(join(this.extensionsDir, 'node_modules', id, plugin.view))
     }
-    // pluginView.webContents.openDevTools()
+    pluginView.webContents.openDevTools()
     const resizeFun = () => {
       pluginView.setBounds({
         x: 0,

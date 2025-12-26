@@ -1,30 +1,30 @@
-import { initTRPC } from '@trpc/server'
+import { inject, injectable } from 'inversify'
 import { join } from 'path'
-import { z } from 'zod' // 参数校验schema
 import { loadJson5 } from '../../utils/json-util'
 import { Plugin } from '@common/types/plugin'
-import { systemPluginList } from '../plugin-data/system-plugin'
-import { marketplacePluginList } from '../plugin-data/market-plugin'
-import { createIpcTrpcClient } from './trpc-client'
+import { systemPluginList } from '../../extensions/plugin-data/system-plugin'
+import { marketplacePluginList } from '../../extensions/plugin-data/market-plugin'
+import { createIpcTrpcClient } from '../../extensions/trpc/trpc-client'
 import { AppRouter as ElectronExposeAppRouter } from '@main/electron-expose/router'
 import { logger } from '@main/utils/logger'
 import { getConfigStore } from '@main/utils/storage-util'
+import { MainConfig } from './extension.type'
+import SettingsService from '../settings/settings.service'
 
 const plugins: Map<string, any> = new Map()
-const t = initTRPC.context().create()
+const mainTrpcClient = createIpcTrpcClient<ElectronExposeAppRouter>(process)
 
 let installedPlugins: Plugin[] = []
 
-const mainTrpcClient = createIpcTrpcClient<ElectronExposeAppRouter>(process)
+@injectable()
+export default class ExtensionService {
+  config: MainConfig = {} as MainConfig
 
-let config: {
-  extensionsDir: string
-  appPath: string
-} = {}
+  constructor(@inject(SettingsService) private readonly settingsService: SettingsService) {}
 
-export const appRouter = t.router({
-  initConfig: t.procedure.input(z.any()).mutation(async ({ input }) => {
-    config = input
+  async initConfig(input: MainConfig) {
+    this.config = input
+    this.settingsService.init(input.appPath)
 
     // 初始化插件配置
     const store = getConfigStore(input.appPath)
@@ -81,15 +81,15 @@ export const appRouter = t.router({
     }
 
     // 处理已安装的第三方插件配置
-    if (config.extensionsDir) {
+    if (this.config.extensionsDir) {
       try {
-        const pack = await loadJson5(join(config.extensionsDir, './package.json'))
+        const pack = await loadJson5(join(this.config.extensionsDir, './package.json'))
         const dependencies = pack.dependencies
 
         for (const dep in dependencies) {
           try {
             const plugJson = await loadJson5(
-              join(config.extensionsDir, 'node_modules', dep, './plugin.json')
+              join(this.config.extensionsDir, 'node_modules', dep, './plugin.json')
             )
 
             if (plugJson.configuration) {
@@ -148,98 +148,92 @@ export const appRouter = t.router({
     }
 
     // 保存更新后的配置
-    store.set('setting', settingJson, (error) => {
-      if (error) {
-        logger.error('保存插件配置失败', error)
-      } else {
-        logger.info('插件配置初始化完成')
-      }
-    })
-  }),
-  getMarketplacePluginList: t.procedure.query(async () => {
-    return marketplacePluginList
-  }),
-  getInstalledPluginList: t.procedure
-    .input(
-      z.object({
-        pluginsDir: z.string()
+    return new Promise<void>((resolve, reject) => {
+      store.set('setting', settingJson, (error) => {
+        if (error) {
+          logger.error('保存插件配置失败', error)
+          reject(error)
+        } else {
+          logger.info('插件配置初始化完成')
+          resolve()
+        }
       })
+    })
+  }
+
+  async getMarketplacePluginList() {
+    return marketplacePluginList
+  }
+
+  async getInstalledPluginList(pluginsDir: string) {
+    console.log('pluginsDir:', pluginsDir)
+    installedPlugins = [...systemPluginList]
+    const pack = await loadJson5(join(pluginsDir, './package.json'))
+    const dependencies = pack.dependencies
+    for (const dep in dependencies) {
+      const plugJson = await loadJson5(join(pluginsDir, 'node_modules', dep, './plugin.json'))
+      plugJson.logo = plugJson.logo ? join(pluginsDir, 'node_modules', dep, plugJson.logo) : ''
+      installedPlugins.push(plugJson)
+    }
+    logger.info(
+      '已安装插件',
+      installedPlugins.map((item) => item.pluginName)
     )
-    .query(async ({ input }) => {
-      installedPlugins = [...systemPluginList]
-      const pack = await loadJson5(join(input.pluginsDir, './package.json'))
-      const dependencies = pack.dependencies
-      for (const dep in dependencies) {
-        const plugJson = await loadJson5(
-          join(input.pluginsDir, 'node_modules', dep, './plugin.json')
-        )
-        installedPlugins.push(plugJson)
-      }
-      logger.info(
-        '已安装插件',
-        installedPlugins.map((item) => item.pluginName)
-      )
-      return installedPlugins
-    }),
-  getPlugin: t.procedure.input(z.object({ id: z.string() })).query(({ input }) => {
-    return installedPlugins.find((item) => item.id === input.id)
-  }),
-  registerPlugin: t.procedure
-    .input(z.object({ id: z.string(), backend: z.string() }))
-    .mutation(async ({ input }) => {
-      console.log('input:', config)
-      console.log('Module:', join(config.extensionsDir, 'node_modules', input.id, input.backend))
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const Module = await require(
-        input.backend.includes(':')
-          ? input.backend
-          : join(config.extensionsDir, 'node_modules', input.id, input.backend)
-      )
-      const Invoke = new Proxy(
-        {},
-        {
-          /**
-           * 拦截属性访问（如 Invoke.xxx）
-           * @param {Object} target - 代理的目标对象（空对象）
-           * @param {string} prop - 访问的属性名（如 'xxx'）
-           * @param {Object} receiver - 代理对象本身
-           * @returns {Function|any} 执行 invoke 并返回结果（或返回函数延迟执行）
-           */
-          get(target, prop, receiver) {
-            // 特殊处理：如果访问 toString/valueOf 等内置属性，返回默认值
-            if (['toString', 'valueOf', 'constructor'].includes(prop as string)) {
-              return Reflect.get(target, prop, receiver)
-            }
-            return (extraOptions = {}) => {
-              console.log('调用')
-              return mainTrpcClient.invokeSystemMethod.mutate({
-                id: input.id,
-                methodName: prop as string,
-                params: extraOptions
-              })
-            }
+    return installedPlugins
+  }
+
+  getPlugin(id: string) {
+    return installedPlugins.find((item) => item.id === id)
+  }
+
+  async registerPlugin(id: string, backend: string) {
+    console.log('Module:', join(this.config.extensionsDir, 'node_modules', id, backend))
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Module = await require(
+      backend.includes(':') ? backend : join(this.config.extensionsDir, 'node_modules', id, backend)
+    )
+    const Invoke = new Proxy(
+      {},
+      {
+        /**
+         * 拦截属性访问（如 Invoke.xxx）
+         * @param {Object} target - 代理的目标对象（空对象）
+         * @param {string} prop - 访问的属性名（如 'xxx'）
+         * @param {Object} receiver - 代理对象本身
+         * @returns {Function|any} 执行 invoke 并返回结果（或返回函数延迟执行）
+         */
+        get(target, prop, receiver) {
+          // 特殊处理：如果访问 toString/valueOf 等内置属性，返回默认值
+          if (['toString', 'valueOf', 'constructor'].includes(prop as string)) {
+            return Reflect.get(target, prop, receiver)
+          }
+          return (extraOptions = {}) => {
+            console.log('调用')
+            return mainTrpcClient.invokeSystemMethod.mutate({
+              id: id,
+              methodName: prop as string,
+              params: extraOptions
+            })
           }
         }
-      )
-      plugins.set(input.id, new Module.default(Invoke))
-      console.log(plugins.get(input.id))
-
-      // plugins.set(input.id, new Module())
-    }),
-  unInstallPlugin: t.procedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
-    plugins.delete(input.id)
-    const index = installedPlugins.findIndex((item) => item.id === input.id)
-    installedPlugins.splice(index, 1)
-  }),
-  invokePluginMethod: t.procedure
-    .input(z.object({ id: z.string(), methodName: z.string(), params: z.any() }))
-    .mutation(async ({ input }) => {
-      const plugin = plugins.get(input.id)
-      if (plugin) {
-        return await plugin[input.methodName](input.params)
       }
-    })
-})
+    )
+    plugins.set(id, new Module.default(Invoke))
+    console.log(plugins.get(id))
 
-// 导出路由类型（主进程客户端用）
-export type AppRouter = typeof appRouter
+    // plugins.set(id, new Module())
+  }
+
+  async unInstallPlugin(id: string) {
+    plugins.delete(id)
+    const index = installedPlugins.findIndex((item) => item.id === id)
+    installedPlugins.splice(index, 1)
+  }
+
+  async invokePluginMethod(id: string, methodName: string, params: any) {
+    const plugin = plugins.get(id)
+    if (plugin) {
+      return await plugin[methodName](params)
+    }
+  }
+}

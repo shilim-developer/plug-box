@@ -5,16 +5,16 @@
       <div class="flex gap-2 overflow-x-auto">
         <button
           v-for="category in categories"
-          :key="category"
+          :key="category.value"
           class="px-3 py-1 text-xs rounded-full whitespace-nowrap transition-colors"
           :class="
-            selectedCategory === category
+            selectedCategory === category.value
               ? 'bg-blue-600 text-white'
               : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
           "
-          @click="selectCategory(category)"
+          @click="selectCategory(category.value)"
         >
-          {{ category }}
+          {{ category.label }}
         </button>
       </div>
     </div>
@@ -31,7 +31,7 @@
 
       <div v-else class="grid grid-cols-1 gap-4 p-4">
         <div
-          v-for="(plugin, index) in filteredPlugins"
+          v-for="plugin in filteredPlugins"
           :key="plugin.id"
           class="bg-[#252525] rounded-lg p-4 border border-gray-700/50 hover:border-blue-500/50 transition-all duration-200 hover:shadow-lg"
         >
@@ -68,7 +68,7 @@
           <div class="flex items-center justify-between">
             <div class="flex gap-2">
               <span class="px-2 py-1 text-xs bg-gray-700 text-gray-300 rounded">
-                {{ getCategoryLabel(plugin.category || 'utility') }}
+                {{ getCategoryLabel(plugin.category || PluginCategory.OTHER) }}
               </span>
             </div>
 
@@ -122,35 +122,31 @@
 
 <script lang="ts" setup>
 import { ref, onMounted, computed, toRaw } from 'vue'
-import { PackageOpen, Package, PackageSearch, Star, RefreshCw, Settings } from 'lucide-vue-next'
+import { PackageSearch, RefreshCw } from 'lucide-vue-next'
 import { trpcClient } from '@renderer/trpc/trpc-client'
-
-interface Plugin {
-  id: string
-  version: string
-  pluginName: string
-  description?: string
-  view?: string
-  backend?: string
-  root?: string
-  category?: string
-  installed?: boolean
-}
+import { PluginCategory } from '@common/constants/plugin-category'
+import { Plugin } from '@common/types/plugin'
 
 const searchQuery = ref('')
 const plugins = ref<Plugin[]>([])
-const selectedCategory = ref('全部')
+const selectedCategory = ref('ALL')
 const isLoading = ref(false)
 const installingPlugins = ref<Set<string>>(new Set())
 const uninstallingPlugins = ref<Set<string>>(new Set())
 
-const categories = ['全部', '开发工具', '效率工具', '娱乐', '系统工具', '图形设计', '其他']
+const categories = [
+  {
+    label: '全部',
+    value: 'ALL'
+  },
+  ...PluginCategory.items
+]
 
 const filteredPlugins = computed(() => {
   let result = plugins.value
 
   // 按分类筛选
-  if (selectedCategory.value !== '全部') {
+  if (selectedCategory.value !== 'ALL') {
     result = result.filter((plugin) => plugin.category === selectedCategory.value)
   }
 
@@ -192,16 +188,8 @@ async function loadPlugins() {
   }
 }
 
-function handleSearch() {
-  // 搜索逻辑已在 computed 中处理
-}
-
 function selectCategory(category: string) {
   selectedCategory.value = category
-}
-
-function refreshPlugins() {
-  loadPlugins()
 }
 
 async function installPlugin(plugin: Plugin) {
@@ -243,23 +231,8 @@ function showPluginDetails(plugin: Plugin) {
   // TODO: 实现详情显示逻辑
 }
 
-function getRandomCategory() {
-  return categories[Math.floor(Math.random() * (categories.length - 1)) + 1]
-}
-
 function getCategoryLabel(category: string) {
-  return category
-}
-
-function generateDescription(name: string) {
-  const descriptions = [
-    '一个功能强大的插件，提供丰富的工具和功能',
-    '提升您的工作效率，简化日常操作',
-    '为您的应用程序带来全新的体验',
-    '专业的解决方案，满足您的各种需求',
-    '简单易用的工具，让您的工作更加轻松'
-  ]
-  return descriptions[Math.floor(Math.random() * descriptions.length)]
+  return PluginCategory.label(category)
 }
 </script>
 

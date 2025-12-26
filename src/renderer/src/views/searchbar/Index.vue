@@ -56,7 +56,7 @@
               class="text-lg font-medium truncate"
               :class="index === selectedIndex ? 'text-white' : 'text-gray-300'"
             >
-              <span v-html="highlightPluginName(item.pluginName, item.matchIndex)"></span>
+              <span v-dompurify-html="highlightPluginName(item.pluginName, item.matchIndex)"></span>
             </h3>
           </div>
           <p class="text-sm text-gray-500 truncate">
@@ -92,7 +92,7 @@ const list = ref<Plugin[]>([])
 const selectedIndex = ref(0)
 const currentPlugin = ref<Plugin>({} as Plugin)
 const enterApp = computed(() => !!currentPlugin.value.id)
-const filterList = computed(() => {
+const filterList = computed<(Plugin & { matchIndex?: number[] })[]>(() => {
   return rawQuery.value
     ? list.value
         .map((item) => ({
@@ -100,7 +100,7 @@ const filterList = computed(() => {
           matchIndex: match(item.pluginName, rawQuery.value, { continuous: true })
         }))
         .filter((item) => item.pluginName.includes(rawQuery.value) || item.matchIndex)
-    : []
+    : ([] as (Plugin & { matchIndex?: number[] })[])
 })
 
 function initHeight() {
@@ -136,9 +136,7 @@ onMounted(async () => {
 })
 
 function handleClick(item) {
-  console.log('item:', item.InstallLocation + item.appName)
   trpcClient.plugin.openPlugin.mutate({ id: item.id })
-  enterApp.value = true
   currentPlugin.value = item
   query.value = ''
 }

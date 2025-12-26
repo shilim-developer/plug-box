@@ -1,3 +1,4 @@
+import { PluginCategory } from '@common/constants/plugin-category'
 export interface Plugin {
   id: string
   version: string
@@ -7,6 +8,8 @@ export interface Plugin {
   backend?: string
   isSystem?: boolean
   logo?: string
+  category?: typeof PluginCategory.valueType
+  installed?: boolean
   configuration?: ConfigurationSchema
 }
 

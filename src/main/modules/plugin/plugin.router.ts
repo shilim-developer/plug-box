@@ -1,6 +1,5 @@
 import { inject, injectable } from 'inversify'
 import PluginService from './plugin.service'
-import { SettingsService } from '../settings/settings.service'
 import { pick } from 'es-toolkit/compat'
 import type { PickMultiplePaths, RouterFilterTypes } from '../../trpc/trpc-types'
 import TrpcService from '../trpc/trpc.service'
@@ -14,8 +13,7 @@ export const PluginMessage = Symbol('plugin:message')
 export default class PluginRouter {
   constructor(
     @inject(TrpcService) private readonly trpcService: TrpcService,
-    @inject(PluginService) private readonly pluginService: PluginService,
-    @inject(SettingsService) private readonly settingsService: SettingsService
+    @inject(PluginService) private readonly pluginService: PluginService
   ) {}
 
   private _router() {
@@ -52,7 +50,7 @@ export default class PluginRouter {
           // 自动注册每个插件的配置 schema
           for (const plugin of plugins) {
             if (plugin.configuration) {
-              this.settingsService.registerConfiguration(plugin.id, plugin.configuration)
+              // this.settingsService.registerConfiguration(plugin.id, plugin.configuration)
             }
           }
 
