@@ -157,6 +157,7 @@ export default class PluginService {
       preloadId: pluginPreloadId,
       dispose: () => {
         mainIpcDispose()
+        pluginView.webContents.closeDevTools()
         pluginView.webContents.session.unregisterPreloadScript(pluginPreloadId)
         const { x, y, height } = this.windowService.mainWindow.getBounds()
         this.windowService.mainWindow.setBounds({ x, y, width: 600, height })

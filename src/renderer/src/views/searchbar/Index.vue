@@ -160,7 +160,9 @@ async function handleKeydown(e) {
     }
   } else if (e.key === 'Enter') {
     e.preventDefault()
-    if (filterList.value[selectedIndex.value]) {
+    if (enterApp.value) {
+      trpcClient.plugin.sendMessage.mutate({ type: 'inputEnter', data: query.value })
+    } else if (filterList.value[selectedIndex.value]) {
       handleClick(filterList.value[selectedIndex.value])
     }
   } else if (e.key === 'Escape') {

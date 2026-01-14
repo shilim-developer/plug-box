@@ -166,6 +166,13 @@ const filteredPlugins = computed(() => {
 
 onMounted(async () => {
   await loadPlugins()
+  trpcClient.plugin.message.subscribe(undefined, {
+    onData: (data: { type: string; data: any }) => {
+      if (data.type === 'inputEnter') {
+        searchQuery.value = data.data
+      }
+    }
+  })
 })
 
 async function loadPlugins() {
